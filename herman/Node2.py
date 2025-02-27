@@ -2,7 +2,7 @@ import socket
 import selectors
 import sys
 import pickle
-from network import Frame
+from network import Frame, IPpacket
 from typing import cast
 
 # Node2 network details
@@ -28,7 +28,8 @@ class Node2:
 
 
         if(rcving_node == "N3"):
-          n3_frame = Frame("N3", "N2", data)  
+          n3_packet = IPpacket(0x2A, 0x2B, 0, data)
+          n3_frame = Frame("N3", "N2", n3_packet)  
           self.sock.sendto(pickle.dumps(n3_frame), ("127.0.0.1", 50030))
         elif(rcving_node == "N1"):
           pass
@@ -37,6 +38,7 @@ class Node2:
        
     
     def handle_incoming_frame(self, frame: Frame):
+        print("Received")
         Node2.print_frame(frame)
 
     def parse_frame(self):
@@ -44,17 +46,11 @@ class Node2:
 
     @staticmethod
     def print_frame(frame: Frame):
-      frame_template = f"""
-              Received frame: 
-              +------------------------------+
-              | Frame Details                |
-              +------------------------------+
-              |{"Source MAC":<16} : {frame.src_mac:<10} |
-              |{"Destination MAC":<16} : {frame.dst_mac:<10} |
-              |{"Data Length":<16} : {frame.data_length:<10} |
-              +------------------------------+
-              """
-      print(frame_template)
+        print(
+          f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac} | "
+          f"packet: {frame.packet.data_length} bytes from {hex(frame.packet.src)} → {hex(frame.packet.dest)} - "
+          f"proto = {frame.packet.protocol}"
+        )
 
     @staticmethod
     def print_menu():

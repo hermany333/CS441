@@ -2,7 +2,7 @@ import socket
 import selectors
 import sys
 import pickle
-from network import Frame
+from network import Frame, IPpacket
 from typing import cast
 
 # Node3 network details
@@ -26,7 +26,8 @@ class Node3:
         data = cmd.split()[1]
 
         if(rcving_node == "N2"):
-          n2_frame = Frame("N3", "N2", data)  
+          n2_packet = IPpacket(0x2B, 0x2A, 0, data)
+          n2_frame = Frame("N3", "N2", n2_packet)  
           self.sock.sendto(pickle.dumps(n2_frame), ("127.0.0.1", 50020))
         elif(rcving_node == "N1"):
           # broadcast to router and N2
@@ -37,6 +38,7 @@ class Node3:
     
     def handle_incoming_frame(self, frame: Frame):
         ## logic to drop frames 
+        print("Received:")
         Node3.print_frame(frame)
 
  
@@ -45,17 +47,11 @@ class Node3:
 
     @staticmethod
     def print_frame(frame: Frame):
-      frame_template = f"""
-              Received frame: 
-              +------------------------------+
-              | Frame Details                |
-              +------------------------------+
-              |{"Source MAC":<16} : {frame.src_mac:<10} |
-              |{"Destination MAC":<16} : {frame.dst_mac:<10} |
-              |{"Data Length":<16} : {frame.data_length:<10} |
-              +------------------------------+
-              """
-      print(frame_template)
+        print(
+          f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac} | "
+          f"packet: {frame.packet.data_length} bytes from {hex(frame.packet.src)} → {hex(frame.packet.dest)} - "
+          f"proto = {frame.packet.protocol}"
+        )
 
     @staticmethod
     def print_menu():
