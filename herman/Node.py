@@ -70,14 +70,16 @@ class Node:
           f"protocol = {frame.packet.protocol}\n"
         )
 
-    @staticmethod
-    def print_menu():
+    def print_menu(self, opts=None):
         print("\n[-- What would you like to do? --]")
         print("Type 'exit' to quit.")
         print("Nodes: N1 0x1A, N2 0x2A, N3 0x2B")
         print("Router: R1 0x11, R2 0x21")
         print("To ping, type: ping <Destination IP> <Message> <Count>")
         print("Example: 'ping 0x2B Hello 5' (sends 5 'Hello's to Node3)")
+        if opts:
+            for opt in opts:
+                opt()
         print("-------------------------------------------")
 
     def handle_network_event(self):

@@ -44,6 +44,11 @@ class Node1(Node):
             print(f"Spoofing: {self.spoof_ip != 0}")
         else:
             super().process_input_command(cmd)
+    
+    def print_menu(self, opts=None):
+        super().print_menu([
+            lambda: print("To spoof, type: spoof <Target IP>\nTo reset spoof, type: spoof 0")
+        ])
 
 if __name__ == "__main__":
     node = Node1(0x1A, "N1") # Initialise Node1 with emulation values
