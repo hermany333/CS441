@@ -18,8 +18,8 @@ class Node:
         self.sock.setblocking(False)
         self.sel = selectors.DefaultSelector()
 
-        self.sel.register(self.sock, selectors.EVENT_READ, data="network")
-        self.sel.register(sys.stdin, selectors.EVENT_READ, data="input")
+        self.sel.register(self.sock, selectors.EVENT_READ, self.handle_network_event)
+        self.sel.register(sys.stdin, selectors.EVENT_READ, self.handle_input_event)
         self.arp_table = arp_table
         self.targets = targets
 
@@ -80,28 +80,32 @@ class Node:
         print("Example: 'ping 0x2B Hello 5' (sends 5 'Hello's to Node3)")
         print("-------------------------------------------")
 
+    def handle_network_event(self):
+        data, _ = self.sock.recvfrom(1024)
+        frame = cast(Frame, pickle.loads(data))
+        self.handle_incoming_frame(frame)
+
+    def handle_input_event(self):
+        cmd = sys.stdin.readline().strip()
+        self.process_input_command(cmd)
+
+    def process_input_command(self, cmd):
+        if cmd.split()[0] == "ping":
+            self.ping(cmd)
+
+    def process_event(self, key):
+        callback = key.data
+        callback()
+
     def run(self):
         self.print_menu()
         try:
             while True:
                 events = self.sel.select(timeout=None)
                 for key, _ in events:
-                    if key.data == "network":
-                        data, _ = self.sock.recvfrom(1024)
-                        frame = cast(Frame, pickle.loads(data))
-                        self.handle_incoming_frame(frame)
-
-                    elif key.data == "input":
-                        cmd = sys.stdin.readline().strip()
-                        if cmd.split()[0] == "ping":
-                            self.ping(cmd)
+                    self.process_event(key)
 
         except KeyboardInterrupt:
             print("\nCaught keyboard interrupt, exiting.")
         finally:
             self.sel.close()
-
-    def get_hc_port(self):
-        # To be implemented by subclasses
-        raise NotImplementedError
-
