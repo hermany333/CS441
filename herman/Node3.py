@@ -11,7 +11,7 @@ class Node3(Node):
             mac_addr=mac_addr,
             listening_port=LISTENING_PORT,
             arp_table={
-                0x1A: "R2", 0x2B: "N2", 0x11: "R1", 0x21: "R2"
+                0x1A: "R2", 0x2A: "N2", 0x11: "R1", 0x21: "R2"
             },
             targets=[50020, 50040]
         )
