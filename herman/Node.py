@@ -5,6 +5,7 @@ import sys
 import pickle
 from network import Frame, IPpacket
 from typing import cast
+import threading
 
 LISTENING_IP = "127.0.0.1"
 
@@ -22,6 +23,7 @@ class Node:
         self.sel.register(sys.stdin, selectors.EVENT_READ, self.handle_input_event)
         self.arp_table = arp_table
         self.targets = targets
+        self.firewall = {}
 
     def send_frame(self, rcving_node_ip, msg, hc_port, is_reply=False):
         if is_reply:
@@ -33,9 +35,15 @@ class Node:
         self.sock.sendto(pickle.dumps(frame), ("127.0.0.1", hc_port))
 
     def handle_incoming_frame(self, frame: Frame):
+
         if frame.dst_mac != self.mac_addr:
             print("Dropping frame")
             self.print_frame(frame)
+            return
+        
+
+        if frame.packet.src in self.firewall:
+            print(f"Dropping frame from {frame.packet.src} due to firewall")
             return
 
         print("Received:")
@@ -77,6 +85,7 @@ class Node:
         print("Router: R1 0x11, R2 0x21")
         print("To ping, type: ping <Destination IP> <Message> <Count>")
         print("Example: 'ping 0x2B Hello 5' (sends 5 'Hello's to Node3)")
+        print("block [ip] to block a specific ip")
         if opts:
             for opt in opts:
                 opt()
@@ -91,9 +100,45 @@ class Node:
         cmd = sys.stdin.readline().strip()
         self.process_input_command(cmd)
 
-    def process_input_command(self, cmd):
+    def process_input_command(self, cmd: str):
+
+        if len(cmd) == 0:
+            return
+
         if cmd.split()[0] == "ping":
             self.ping(cmd)
+
+        if cmd.split()[0] == "block" or cmd.split()[0] == "unblock":
+            self.toggle_firewall(cmd)
+
+        if cmd.split()[0] == "firewall":
+            self.view_firewall()
+
+    def toggle_firewall(self, cmd: str):
+
+        command = cmd.lower().split()[0]
+        ipAddr = cmd.split()[1]
+
+        base16Addr = int(ipAddr, 16)
+
+        if command == "block":
+            self.firewall[base16Addr] = ipAddr
+            print(f"Blocking {ipAddr}")
+        else:
+            if base16Addr in self.firewall:
+                del self.firewall[base16Addr]
+                print(f"Unblocking {ipAddr}")
+
+    def view_firewall(self):
+        print("Firewall:")
+        for _,v in enumerate(self.firewall):
+            print(v)
+
+    def toggleSpoof(self, spoof_ip):
+        if self.spoof_ip != 0:
+            self.spoof_ip = 0
+        else:
+            self.spoof_ip = int(spoof_ip, 16)
 
     def process_event(self, key):
         callback = key.data
