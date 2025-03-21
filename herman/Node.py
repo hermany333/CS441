@@ -10,7 +10,7 @@ import threading
 LISTENING_IP = "127.0.0.1"
 
 class Node:
-    def __init__(self, ip, mac_addr, listening_port, arp_table={}, targets=[]):
+    def __init__(self, ip, mac_addr, listening_port, arp_table={}, targets=[], sniff=False):
         self.ip = ip
         self.mac_addr = mac_addr
         self.listening_port = listening_port
@@ -24,6 +24,8 @@ class Node:
         self.arp_table = arp_table
         self.targets = targets
         self.firewall = {}
+        self.sniff = sniff
+
 
     def send_frame(self, rcving_node_ip, msg, hc_port, is_reply=False):
         if is_reply:
@@ -36,7 +38,14 @@ class Node:
 
     def handle_incoming_frame(self, frame: Frame):
 
-        if frame.dst_mac != self.mac_addr:
+
+        if self.sniff:
+            if frame.dst_mac != self.mac_addr:
+                print("Sniffing:")
+                self.print_frame(frame)
+                return
+            
+        elif frame.dst_mac != self.mac_addr:
             print("Dropping frame")
             self.print_frame(frame)
             return
