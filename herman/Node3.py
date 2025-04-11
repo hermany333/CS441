@@ -13,7 +13,7 @@ class Node3(Node):
             arp_table={
                 0x1A: "R2", 0x2A: "N2", 0x11: "R1", 0x21: "R2"
             },
-            targets=[50020, 50040]
+            targets=[50020, 50040],
         )
 
 

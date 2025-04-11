@@ -1,13 +1,23 @@
+from dhparams import shared_dh_parameters
+import random
 import socket
 import time
 import selectors
 import sys
 import pickle
-from network import Frame, IPpacket
+import binascii
+from network import Frame, IPpacket, TCPHeader
 from typing import cast
-import threading
+from cryptography.hazmat.primitives.asymmetric import dh
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric.dh import DHPublicKey
+from cryptography.hazmat.primitives import serialization
 
+# config
 LISTENING_IP = "127.0.0.1"
+PROTO_TLS = 2
 
 class Node:
     def __init__(self, ip, mac_addr, listening_port, arp_table={}, targets=[], sniff=False):
@@ -26,6 +36,12 @@ class Node:
         self.firewall = {}
         self.sniff = sniff
 
+        # TLS parameters 
+        self.dh_parameters = shared_dh_parameters
+        self.ephemeral_keys = {}
+        self.shared_keys = {}
+        self.handshake_in_progress = set() 
+
 
     def send_frame(self, rcving_node_ip, msg, hc_port, is_reply=False):
         if is_reply:
@@ -38,7 +54,6 @@ class Node:
 
     def handle_incoming_frame(self, frame: Frame):
 
-
         if self.sniff:
             if frame.dst_mac != self.mac_addr:
                 print("Sniffing:")
@@ -49,10 +64,13 @@ class Node:
             print("Dropping frame")
             self.print_frame(frame)
             return
-        
 
         if frame.packet.src in self.firewall:
             print(f"Dropping frame from {frame.packet.src} due to firewall")
+            return
+
+        if frame.packet.protocol == PROTO_TLS:
+            self.handle_tls_hello(frame.packet)
             return
 
         print("Received:")
@@ -82,9 +100,9 @@ class Node:
     @staticmethod
     def print_frame(frame: Frame):
         print(
-          f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac} | "
-          f"packet: {frame.packet.data_length} bytes from {hex(frame.packet.src)} → {hex(frame.packet.dest)} - "
-          f"protocol = {frame.packet.protocol}\n"
+            f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac} | "
+            f"packet: {frame.packet.data_length} bytes from {hex(frame.packet.src)} → {hex(frame.packet.dest)} - "
+            f"protocol = {frame.packet.protocol}\n"
         )
 
     def print_menu(self, opts=None):
@@ -123,6 +141,9 @@ class Node:
         if cmd.split()[0] == "firewall":
             self.view_firewall()
 
+        if cmd.split()[0] == "tls":
+            self.initiate_tls(cmd)
+
     def toggle_firewall(self, cmd: str):
 
         command = cmd.lower().split()[0]
@@ -152,6 +173,92 @@ class Node:
     def process_event(self, key):
         callback = key.data
         callback()
+
+    def initiate_tls(self, cmd):
+        dest_ip = int(cmd.split()[1], 16)
+        # Generate private key
+        private_key = self.dh_parameters.generate_private_key()
+        public_key = private_key.public_key()
+        self.ephemeral_keys[dest_ip] = private_key # Store it in a dictionary
+        self.handshake_in_progress.add(dest_ip)
+
+        print(f"[{self.mac_addr}] Sent TLS Hello")
+        for target in self.targets:
+            self.send_tls_hello(dest_ip, target, public_key)
+
+    def send_tls_hello(self, dest_ip, hc_port, public_key):
+        # Generate public key
+        pubkey_bytes = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+
+        tcp_segment = TCPHeader(
+            src_port=random.randint(49152, 65535),
+            dst_port=443,
+            payload=pubkey_bytes.decode(),
+        )
+
+        # Flood public key
+        packet = IPpacket(self.ip, dest_ip, PROTO_TLS, data=tcp_segment)
+        frame = Frame(self.mac_addr, self.arp_table[dest_ip], packet)
+        self.sock.sendto(pickle.dumps(frame), (LISTENING_IP, hc_port))  
+
+    def handle_tls_hello(self, packet: IPpacket):
+        if not isinstance(packet.data, TCPHeader):
+            print("Invalid TLS packet structure.")
+            return
+        
+        print(f"Handling TLS from {hex(packet.src)}")
+        if packet.src in self.handshake_in_progress:
+            # Received a TLS Hello response — I initiated this handshake.
+            private_key = self.ephemeral_keys[packet.src]
+            shared_key = self.derive_tls_shared_key(packet, private_key);
+        else:
+            # Received a TLS Hello initiation — I'm the responder.
+            private_key = self.dh_parameters.generate_private_key()
+            public_key = private_key.public_key()
+            self.ephemeral_keys[packet.src] = private_key # Store it in a dictionary
+            self.handshake_in_progress.add(packet.src)
+
+            for target in self.targets:
+                self.send_tls_hello(packet.src, target, public_key)
+            
+            shared_key = self.derive_tls_shared_key(packet, private_key);
+        
+        if shared_key:
+            self.shared_keys[packet.src] = shared_key
+            self.handshake_in_progress.discard(packet.src)
+
+    def derive_tls_shared_key(self, packet, private_key):
+        try:
+            peer_pubkey = serialization.load_pem_public_key(
+                    packet.data.payload.encode(),
+                    backend=default_backend()
+            )
+
+            if not isinstance(peer_pubkey, DHPublicKey):
+                    print("Received key is not a valid Diffie-Hellman public key.")
+                    return None
+
+            shared_key = private_key.exchange(peer_pubkey)
+
+            derived_key = HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=None,
+                info=b'tls-handshake',
+                backend=default_backend()
+            ).derive(shared_key)
+
+            print(f"Established shared TLS key with {hex(packet.src)}")
+            print(f"Derived key: {binascii.hexlify(derived_key).decode()}")
+
+            return derived_key
+
+        except Exception as e:
+            print(f"Error during TLS key derivation: {e}")
+            return None
 
     def run(self):
         self.print_menu()

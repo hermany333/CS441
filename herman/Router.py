@@ -49,23 +49,27 @@ class Router:
         elif dest_ip in [0x2A, 0x2B]:
           # route to LAN2 changing src_mac of frame
           print(f"Routing packet sent by {hex(frame.packet.src)} to {hex(frame.packet.dest)} \n")
-          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50020, frame.packet.is_reply)
-          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50030, frame.packet.is_reply)
+          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50020, frame.packet.protocol, frame.packet.is_reply)
+          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50030, frame.packet.protocol, frame.packet.is_reply)
         elif dest_ip in [0x1A]:
           print(f"Routing packet sent by {hex(frame.packet.src)} to {hex(frame.packet.dest)}\n")
           # route to LAN1 changing src_mac of frame
-          self.send_frame(self.mac_addrlan1, frame.packet.src, frame.packet.dest, frame.packet.data, 50010, frame.packet.is_reply)
+          self.send_frame(self.mac_addrlan1, frame.packet.src, frame.packet.dest, frame.packet.data, 50010, frame.packet.protocol, frame.packet.is_reply)
         else:
             print(f"[Router] Unknown IP dest={hex(dest_ip)}, dropping frame.")
 
     # has an extra src_mac, src_ip argument (comapred to send_frame in node as router has 2 ips attached to it)
-    def send_frame(self, src_mac, src_ip, rcving_node_ip, msg, hc_port, is_reply = False):
-        if is_reply:
-            packet = IPpacket(src_ip, rcving_node_ip, 0, msg, is_reply = True)
-            frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
-        else:
-            packet = IPpacket(src_ip, rcving_node_ip, 0, msg)
-            frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
+    def send_frame(self, src_mac, src_ip, rcving_node_ip, msg, hc_port, protocol, is_reply = False):
+        if protocol == 0:
+            if is_reply:
+                packet = IPpacket(src_ip, rcving_node_ip, 0, msg, is_reply = True)
+                frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
+            else:
+                packet = IPpacket(src_ip, rcving_node_ip, 0, msg)
+                frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
+        if protocol == 2:
+                packet = IPpacket(src_ip, rcving_node_ip, 2, msg)
+                frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
 
         self.sock.sendto(pickle.dumps(frame), ("127.0.0.1", hc_port))  
 
