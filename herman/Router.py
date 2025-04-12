@@ -58,7 +58,6 @@ class Router:
         else:
             print(f"[Router] Unknown IP dest={hex(dest_ip)}, dropping frame.")
 
-    # has an extra src_mac, src_ip argument (comapred to send_frame in node as router has 2 ips attached to it)
     def send_frame(self, src_mac, src_ip, rcving_node_ip, msg, hc_port, protocol, is_reply = False):
         if protocol == 0:
             if is_reply:
@@ -67,10 +66,16 @@ class Router:
             else:
                 packet = IPpacket(src_ip, rcving_node_ip, 0, msg)
                 frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
-        if protocol == 2:
+        elif protocol == 2:
                 packet = IPpacket(src_ip, rcving_node_ip, 2, msg)
                 frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
-
+        elif protocol == 3:
+                packet = IPpacket(src_ip, rcving_node_ip, 3, msg)
+                frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
+        else:
+                print(f"Unknown protocol: {protocol}")
+                return  # prevents unbound frame usage
+      
         self.sock.sendto(pickle.dumps(frame), ("127.0.0.1", hc_port))  
 
     @staticmethod
