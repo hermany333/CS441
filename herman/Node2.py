@@ -15,8 +15,10 @@ class Node2(Node):
             },
             targets=[50030, 50040]
         )
-
+        
+    
+    # Node2 is a basic node with standard functionality
 
 if __name__ == "__main__":
-    node = Node2(0x2A, "N2") # Initialise Node2 with emulation values
+    node = Node2(0x2A, "N2")  # Initialize Node2 with emulation values
     node.run()
