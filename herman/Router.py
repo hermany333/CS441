@@ -49,16 +49,25 @@ class Router:
         elif dest_ip in [0x2A, 0x2B]:
           # route to LAN2 changing src_mac of frame
           print(f"Routing packet sent by {hex(frame.packet.src)} to {hex(frame.packet.dest)} \n")
+          print(
+            f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac} \n"
+            f"packet: payload {frame.packet} sending from {hex(frame.packet.src)} → {hex(frame.packet.dest)} \n"
+            f"protocol = {frame.packet.protocol}\n"
+          )
           self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50020, frame.packet.protocol, frame.packet.is_reply)
           self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50030, frame.packet.protocol, frame.packet.is_reply)
         elif dest_ip in [0x1A]:
           print(f"Routing packet sent by {hex(frame.packet.src)} to {hex(frame.packet.dest)}\n")
+          print(
+            f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac} \n"
+            f"packet: payload {frame.packet} sending from {hex(frame.packet.src)} → {hex(frame.packet.dest)} \n"
+            f"protocol = {frame.packet.protocol}\n"
+          )
           # route to LAN1 changing src_mac of frame
           self.send_frame(self.mac_addrlan1, frame.packet.src, frame.packet.dest, frame.packet.data, 50010, frame.packet.protocol, frame.packet.is_reply)
         else:
             print(f"[Router] Unknown IP dest={hex(dest_ip)}, dropping frame.")
 
-    # has an extra src_mac, src_ip argument (comapred to send_frame in node as router has 2 ips attached to it)
     def send_frame(self, src_mac, src_ip, rcving_node_ip, msg, hc_port, protocol, is_reply = False):
         if protocol == 0:
             if is_reply:
@@ -67,10 +76,16 @@ class Router:
             else:
                 packet = IPpacket(src_ip, rcving_node_ip, 0, msg)
                 frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
-        if protocol == 2:
+        elif protocol == 2:
                 packet = IPpacket(src_ip, rcving_node_ip, 2, msg)
                 frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
-
+        elif protocol == 3:
+                packet = IPpacket(src_ip, rcving_node_ip, 3, msg)
+                frame = Frame(src_mac, self.arp_table[rcving_node_ip], packet)  
+        else:
+                print(f"Unknown protocol: {protocol}")
+                return  # prevents unbound frame usage
+      
         self.sock.sendto(pickle.dumps(frame), ("127.0.0.1", hc_port))  
 
     @staticmethod

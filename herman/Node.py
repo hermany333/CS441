@@ -1,4 +1,5 @@
 from dhparams import shared_dh_parameters
+import os
 import random
 import socket
 import time
@@ -8,9 +9,10 @@ import pickle
 import binascii
 import random
 import re 
+import base64
 from network import Frame, IPpacket, TCPHeader
 from typing import cast
-from cryptography.hazmat.primitives.asymmetric import dh
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
@@ -24,6 +26,7 @@ PROTO_COVERT = 0xCC  # Special protocol for covert channel
 COVERT_METHOD_TIMING = "timing"
 COVERT_METHOD_STEG = "steg"
 
+PROTO_SECURE = 3
 
 class Node:
     def __init__(self, ip, mac_addr, listening_port, arp_table={}, targets=[]):
@@ -77,14 +80,14 @@ class Node:
         self.sock.sendto(pickle.dumps(frame), ("127.0.0.1", hc_port))
 
     def handle_incoming_frame(self, frame: Frame):
-        # If the frame isn't for us, drop it
-        if frame.dst_mac != self.mac_addr:
-            if self.sniff_mode:
-                print("🔍 Sniffing:")
+
+        if self.sniff_mode:
+            if frame.dst_mac != self.mac_addr:
+                print(f"[{self.mac_addr}] Sniffing: ")
                 self.print_frame(frame)
             else:
                 print("Dropping frame")
-                self.print_frame(frame)
+
             return
 
         # Run IDS analysis
@@ -94,10 +97,14 @@ class Node:
                 print(f"⚠️ Blocking suspicious traffic from {hex(frame.packet.src)}")
                 self.firewall[frame.packet.src] = hex(frame.packet.src)
                 return
-        
-        # Firewall check
+            
+        elif frame.dst_mac != self.mac_addr:
+            print(f"[{self.mac_addr}] Dropping Frame")
+            print(f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac}")
+            return
+
         if frame.packet.src in self.firewall:
-            print(f"🛡️ Dropping frame from {hex(frame.packet.src)} due to firewall")
+            print(f"[{self.mac_addr}] Dropping frame from {frame.packet.src} due to firewall")
             return
 
         # Check for covert channel data - do this early to not print covert messages
@@ -116,13 +123,18 @@ class Node:
             self.analyze_frame_stats(frame)
 
         print("Received:")
+        if frame.packet.protocol == PROTO_SECURE:
+            self.handle_encrypted_message(frame.packet)
+            return
+
+        print(f"[{self.mac_addr}] Received:")
         self.print_frame(frame)
 
         # Don't reply to replies to avoid ping-pong
         if frame.packet.is_reply:
             return
 
-        print(f"Replying to ping from {frame.src_mac}...\n")
+        print(f"[{self.mac_addr}] Replying to ping from {frame.src_mac}...\n")
         for target in self.targets:
             self.send_frame(frame.packet.src, frame.packet.data, target, is_reply=True)
 
@@ -350,6 +362,9 @@ class Node:
         print("Sniffing: sniff (toggles sniffing mode)")
         print("IDS commands: ids (toggle IDS), suspicious (view detected IPs)")
         print("Traffic Analysis: analyze (start) | report (view statistics)")
+        print("\n========== TLS FEATURES ==========")
+        print("To establish TLS handshake: tls <Destination IP>")
+        print("To securely communicate with another Node: sc <Destination IP> \"<String>\"")
         if opts:
             for opt in opts:
                 opt()
@@ -425,6 +440,91 @@ class Node:
             self.show_covert_messages()
         elif command == "help" or command == "menu":
             self.print_menu()
+
+        if cmd.split()[0] == "sc":
+          # cmd = sc 0x2B "hello friend"
+          _, hex_ip, message = cmd.split(" ", 2)
+          dest_ip = int(hex_ip, 16)
+          for target in self.targets:
+              self.send_encrypted_message(dest_ip, message, target)
+
+    def send_encrypted_message(self, dest_ip, message, hc_port):
+
+        if dest_ip not in self.shared_keys:
+            print(f"[{self.mac_addr}] No shared key with {hex(dest_ip)}")
+            return
+
+        key = self.shared_keys[dest_ip]
+        aesgcm = AESGCM(key)
+        nonce = os.urandom(12)
+
+        ciphertext = aesgcm.encrypt(nonce, message.encode(), None)
+        combined = nonce + ciphertext
+        encoded_payload = base64.b64encode(combined).decode()
+
+        tcp_segment = TCPHeader(
+            src_port=random.randint(49152, 65535),
+            dst_port=443,
+            payload=encoded_payload
+        )
+
+        packet = IPpacket(self.ip, dest_ip, PROTO_SECURE, tcp_segment)
+        frame = Frame(self.mac_addr, self.arp_table[dest_ip], packet)
+        self.sock.sendto(pickle.dumps(frame), (LISTENING_IP, hc_port))
+        print(f"[{self.mac_addr}] Sent encrypted message to {hex(dest_ip)}")
+
+    def handle_encrypted_message(self, packet: IPpacket):
+        if not isinstance(packet.data, TCPHeader):
+            print("Invalid secure packet structure.")
+            return
+
+        print(f"[{self.mac_addr}] Received encrypted message from {hex(packet.src)}")
+        print(f"[{self.mac_addr}] Handling encrypted message from {hex(packet.src)}")
+
+        if packet.src not in self.shared_keys:
+            print(f"[{self.mac_addr}] No shared key with {hex(packet.src)} — cannot decrypt.")
+            return
+
+        try:
+            key = self.shared_keys[packet.src]
+            aesgcm = AESGCM(key)
+
+            encrypted_bytes = base64.b64decode(packet.data.payload.encode())
+            nonce = encrypted_bytes[:12]
+            ciphertext = encrypted_bytes[12:]
+
+            plaintext = aesgcm.decrypt(nonce, ciphertext, None).decode()
+            print(f"[{self.mac_addr}] Decrypted message from {hex(packet.src)}: {plaintext}")
+
+        except Exception as e:
+            print(f"[{self.mac_addr}] Decryption failed: {e}")
+
+
+    def toggle_firewall(self, cmd: str):
+
+        command = cmd.lower().split()[0]
+        ipAddr = cmd.split()[1]
+
+        base16Addr = int(ipAddr, 16)
+
+        if command == "block":
+            self.firewall[base16Addr] = ipAddr
+            print(f"Blocking {ipAddr}")
+        else:
+            if base16Addr in self.firewall:
+                del self.firewall[base16Addr]
+                print(f"Unblocking {ipAddr}")
+
+    def toggleSpoof(self, spoof_ip):
+        if self.spoof_ip != 0:
+            self.spoof_ip = 0
+        else:
+            self.spoof_ip = int(spoof_ip, 16)
+
+    def process_event(self, key):
+        callback = key.data
+        callback()
+
 
     def initiate_tls(self, cmd):
         dest_ip = int(cmd.split()[1], 16)
