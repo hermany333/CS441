@@ -47,7 +47,8 @@ class Node1(Node):
     
     def print_menu(self, opts=None):
         super().print_menu([
-            lambda: print("To spoof, type: spoof <Target IP>\nTo reset spoof, type: spoof 0")
+            lambda: print("\n========== ATTACK FEATURES =========="),
+            lambda: print("To spoof type: spoof <Target IP>\nTo reset spoof, type: spoof 0")
         ])
 
 if __name__ == "__main__":
