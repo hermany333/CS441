@@ -1,7 +1,5 @@
 from Node import Node
 
-import sys
-import selectors
 import pickle
 from network import Frame, IPpacket
 
@@ -22,8 +20,8 @@ class Node1(Node):
         )
         self.spoof_ip=0
 
-    def send_frame(self, rcving_node_ip, msg, hc_port, is_reply=False):
-        src_ip = self.spoof_ip if self.spoof_ip != 0 else self.ip
+    def send_frame(self, rcving_node_ip, msg, hc_port, is_reply=False, protocol=0):
+        src_ip = self.spoof_ip if self.spoof_ip != 0 else self.ip #sets the ip to the appropriate one if spoofing is enabled
         if is_reply:
             packet = IPpacket(src_ip, rcving_node_ip, 0, msg, is_reply=True)
         else:

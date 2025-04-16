@@ -62,13 +62,6 @@ class Node:
         # Defense features (available to all nodes)
         self.firewall = {}
         self.sniff_mode = False
-        self.ids_active = False
-        self.attack_patterns = {
-            "flooding": {"threshold": 5, "time_window": 5, "count": 0, "last_reset": time.time()},
-            "port_scan": set(),  # Track accessed ports
-        }
-        self.suspicious_ips = set()
-        self.traffic_stats = None
 
     def send_frame(self, rcving_node_ip, msg, hc_port, is_reply=False, protocol=0):
         if is_reply:
@@ -80,7 +73,6 @@ class Node:
         self.sock.sendto(pickle.dumps(frame), ("127.0.0.1", hc_port))
 
     def handle_incoming_frame(self, frame: Frame):
-
         if self.sniff_mode:
             if frame.dst_mac != self.mac_addr:
                 print(f"[{self.mac_addr}] Sniffing: ")
@@ -89,16 +81,8 @@ class Node:
                 print("Dropping frame")
 
             return
-
-        # Run IDS analysis
-        if self.ids_active:
-            is_attack = self.analyze_traffic(frame)
-            if is_attack:
-                print(f"⚠️ Blocking suspicious traffic from {hex(frame.packet.src)}")
-                self.firewall[frame.packet.src] = hex(frame.packet.src)
-                return
             
-        elif frame.dst_mac != self.mac_addr:
+        if frame.dst_mac != self.mac_addr:
             print(f"[{self.mac_addr}] Dropping Frame")
             print(f"frame: {frame.data_length} bytes from {frame.src_mac} → {frame.dst_mac}")
             return
@@ -117,10 +101,6 @@ class Node:
         if frame.packet.protocol == PROTO_TLS:
             self.handle_tls_hello(frame.packet)
             return
-
-        # Track traffic statistics if analysis is enabled
-        if hasattr(self, 'traffic_analysis') and self.traffic_analysis:
-            self.analyze_frame_stats(frame)
 
         print("Received:")
         if frame.packet.protocol == PROTO_SECURE:
@@ -224,128 +204,6 @@ class Node:
         self.ids_active = not self.ids_active
         print(f"🛡️ Intrusion Detection System: {'ACTIVE' if self.ids_active else 'INACTIVE'}")
 
-    def analyze_traffic(self, frame):
-        """Analyze traffic for suspicious patterns"""
-        if not self.ids_active:
-            return False
-            
-        current_time = time.time()
-        src_ip = frame.packet.src
-        
-        # Reset counters if time window has passed
-        if current_time - self.attack_patterns["flooding"]["last_reset"] > self.attack_patterns["flooding"]["time_window"]:
-            self.attack_patterns["flooding"]["count"] = 0
-            self.attack_patterns["flooding"]["last_reset"] = current_time
-        
-        # Check for flooding attacks
-        self.attack_patterns["flooding"]["count"] += 1
-        if self.attack_patterns["flooding"]["count"] > self.attack_patterns["flooding"]["threshold"]:
-            print(f"⚠️ ALERT: Possible flooding attack from {hex(src_ip)}")
-            self.suspicious_ips.add(src_ip)
-            return True
-            
-        # Check for port scanning if TCP header is available
-        if hasattr(frame.packet.data, 'dst_port'):
-            self.attack_patterns["port_scan"].add(frame.packet.data.dst_port)
-            if len(self.attack_patterns["port_scan"]) > 3:  # Threshold for port scan detection
-                print(f"⚠️ ALERT: Possible port scanning from {hex(src_ip)}")
-                self.suspicious_ips.add(src_ip)
-                return True
-                
-        # Check for potential covert channel (lots of small packets with unusual timing)
-        if frame.packet.protocol == PROTO_COVERT:
-            if not hasattr(self, 'covert_detection_counter'):
-                self.covert_detection_counter = 1
-                self.covert_detection_time = current_time
-            else:
-                self.covert_detection_counter += 1
-                
-            # If we see a lot of covert protocol packets in a short time, flag it
-            if self.covert_detection_counter > 10 and current_time - self.covert_detection_time < 3:
-                print(f"⚠️ ALERT: Possible covert channel detected from {hex(src_ip)}")
-                self.suspicious_ips.add(src_ip)
-                self.covert_detection_counter = 0
-                self.covert_detection_time = current_time
-                return True
-        
-        return False   
-
-    def view_suspicious_ips(self):
-        """Display IPs detected as suspicious by IDS"""
-        print("⚠️ Suspicious IPs detected by IDS:")
-        for ip in self.suspicious_ips:
-            print(f"0x{ip:X}")
-        if not self.suspicious_ips:
-            print("No suspicious IPs detected")
-
-    def start_traffic_analysis(self):
-        """
-        Begin collecting traffic statistics for visualization
-        """
-        self.traffic_analysis = True
-        self.traffic_stats = {
-            "ip_counts": {},
-            "protocol_counts": {},
-            "bytes_sent": {},
-            "connection_graph": {}
-        }
-        print("📊 Traffic analysis started")
-
-    def analyze_frame_stats(self, frame):
-        """
-        Collect statistics on network traffic
-        """
-        if not hasattr(self, 'traffic_stats') or not self.traffic_stats:
-            self.start_traffic_analysis()
-            
-        src = frame.packet.src
-        dst = frame.packet.dest
-        protocol = frame.packet.protocol
-        
-        # Count packets by IP
-        self.traffic_stats["ip_counts"][src] = self.traffic_stats["ip_counts"].get(src, 0) + 1
-        
-        # Count protocols
-        self.traffic_stats["protocol_counts"][protocol] = self.traffic_stats["protocol_counts"].get(protocol, 0) + 1
-        
-        # Track bandwidth usage
-        data_len = len(str(frame.packet.data))
-        self.traffic_stats["bytes_sent"][src] = self.traffic_stats["bytes_sent"].get(src, 0) + data_len
-        
-        # Build connection graph
-        if src not in self.traffic_stats["connection_graph"]:
-            self.traffic_stats["connection_graph"][src] = set()
-        self.traffic_stats["connection_graph"][src].add(dst)
-
-    def show_traffic_report(self):
-        """
-        Display traffic analysis report
-        """
-        if not hasattr(self, 'traffic_stats') or not self.traffic_stats:
-            print("No traffic analysis data available")
-            return
-            
-        print("\n📊 === NETWORK TRAFFIC ANALYSIS ===")
-        
-        print("\nTop Talkers:")
-        sorted_ips = sorted(self.traffic_stats["ip_counts"].items(), key=lambda x: x[1], reverse=True)
-        for ip, count in sorted_ips[:5]:
-            print(f"  {hex(ip)}: {count} packets")
-        
-        print("\nProtocol Distribution:")
-        for protocol, count in self.traffic_stats["protocol_counts"].items():
-            print(f"  Protocol {hex(protocol)}: {count} packets")
-        
-        print("\nBandwidth Usage:")
-        for ip, bytes_sent in sorted(self.traffic_stats["bytes_sent"].items(), key=lambda x: x[1], reverse=True)[:5]:
-            print(f"  {hex(ip)}: {bytes_sent} bytes")
-        
-        print("\nConnection Map:")
-        for src, destinations in self.traffic_stats["connection_graph"].items():
-            print(f"  {hex(src)} → {', '.join([hex(dst) for dst in destinations])}")
-        
-        print("=====================================\n")
-
     def print_menu(self, opts=None):
         print("\n[-- What would you like to do? --]")
         print("Type 'exit' to quit.")
@@ -409,12 +267,6 @@ class Node:
             self.toggle_sniff()
         elif command == "ids":
             self.toggle_ids()
-        elif command == "suspicious":
-            self.view_suspicious_ips()
-        elif command == "analyze":
-            self.start_traffic_analysis()
-        elif command == "report":
-            self.show_traffic_report()
         # Covert channel commands - available to all nodes
         elif command == "covert":
             if len(cmd_parts) < 3:
@@ -496,22 +348,6 @@ class Node:
 
         except Exception as e:
             print(f"[{self.mac_addr}] Decryption failed: {e}")
-
-
-    def toggle_firewall(self, cmd: str):
-
-        command = cmd.lower().split()[0]
-        ipAddr = cmd.split()[1]
-
-        base16Addr = int(ipAddr, 16)
-
-        if command == "block":
-            self.firewall[base16Addr] = ipAddr
-            print(f"Blocking {ipAddr}")
-        else:
-            if base16Addr in self.firewall:
-                del self.firewall[base16Addr]
-                print(f"Unblocking {ipAddr}")
 
     def toggleSpoof(self, spoof_ip):
         if self.spoof_ip != 0:
@@ -1014,10 +850,6 @@ class Node:
             print("  No covert messages recovered yet")
         
         print("====================================\n")
-
-    def process_event(self, key):
-        callback = key.data
-        callback()
 
     def run(self):
         self.print_menu()

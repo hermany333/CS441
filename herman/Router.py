@@ -7,6 +7,9 @@ from network import Frame, IPpacket
 # UDP port mapping for Node1, Node2, Node3
 
 # Router listens on its own port
+NODE_1_PORT = 50010
+NODE_2_PORT = 50020
+NODE_3_PORT = 50030
 ROUTER_LISTEN_PORT = 50040
 LISTENING_IP = "127.0.0.1"
 
@@ -41,10 +44,10 @@ class Router:
           print(f"Replying to ping from {frame.src_mac}...\n")
           if ip_pkt.src in [0x2A, 0x2B]:
             # Reply back to node in LAN2
-            self.send_frame(self.mac_addrlan2, self.iplan2, frame.packet.src, frame.packet.data, 50020, True)
-            self.send_frame(self.mac_addrlan2, self.iplan2, frame.packet.src, frame.packet.data, 50030, True)
+            self.send_frame(self.mac_addrlan2, self.iplan2, frame.packet.src, frame.packet.data, NODE_2_PORT, True)
+            self.send_frame(self.mac_addrlan2, self.iplan2, frame.packet.src, frame.packet.data, NODE_3_PORT, True)
           elif ip_pkt.src in [0x1A]:
-            self.send_frame(self.mac_addrlan1, self.iplan1, frame.packet.src, frame.packet.data, 50030, True)
+            self.send_frame(self.mac_addrlan1, self.iplan1, frame.packet.src, frame.packet.data, NODE_3_PORT, True)
 
         elif dest_ip in [0x2A, 0x2B]:
           # route to LAN2 changing src_mac of frame
@@ -54,8 +57,8 @@ class Router:
             f"packet: payload {frame.packet} sending from {hex(frame.packet.src)} → {hex(frame.packet.dest)} \n"
             f"protocol = {frame.packet.protocol}\n"
           )
-          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50020, frame.packet.protocol, frame.packet.is_reply)
-          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, 50030, frame.packet.protocol, frame.packet.is_reply)
+          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, NODE_2_PORT, frame.packet.protocol, frame.packet.is_reply)
+          self.send_frame(self.mac_addrlan2, frame.packet.src, frame.packet.dest, frame.packet.data, NODE_3_PORT, frame.packet.protocol, frame.packet.is_reply)
         elif dest_ip in [0x1A]:
           print(f"Routing packet sent by {hex(frame.packet.src)} to {hex(frame.packet.dest)}\n")
           print(
@@ -64,7 +67,7 @@ class Router:
             f"protocol = {frame.packet.protocol}\n"
           )
           # route to LAN1 changing src_mac of frame
-          self.send_frame(self.mac_addrlan1, frame.packet.src, frame.packet.dest, frame.packet.data, 50010, frame.packet.protocol, frame.packet.is_reply)
+          self.send_frame(self.mac_addrlan1, frame.packet.src, frame.packet.dest, frame.packet.data, NODE_1_PORT, frame.packet.protocol, frame.packet.is_reply)
         else:
             print(f"[Router] Unknown IP dest={hex(dest_ip)}, dropping frame.")
 
